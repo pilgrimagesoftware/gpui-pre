@@ -1,4 +1,4 @@
-use crate::{Action, App, Platform, SharedString};
+use crate::{Action, App, Modifiers, Platform, SharedString};
 
 /// A menu of the application, either a main menu or a submenu
 pub struct Menu {
@@ -100,6 +100,12 @@ pub enum MenuItem {
 
         /// Whether this action is disabled
         disabled: bool,
+
+        /// Set when this item is an alternate of the item before it: shown
+        /// in that item's place while these modifiers are held, as
+        /// `NSMenuItem.alternate` does on macOS. Platforms without
+        /// alternate items ignore it and show both items.
+        alternate: Option<Modifiers>,
     },
 }
 
@@ -130,6 +136,7 @@ impl MenuItem {
             os_action: None,
             checked: false,
             disabled: false,
+            alternate: None,
         }
     }
 
@@ -145,6 +152,7 @@ impl MenuItem {
             os_action: Some(os_action),
             checked: false,
             disabled: false,
+            alternate: None,
         }
     }
 
@@ -159,12 +167,14 @@ impl MenuItem {
                 os_action,
                 checked,
                 disabled,
+                alternate,
             } => OwnedMenuItem::Action {
                 name: name.into(),
                 action,
                 os_action,
                 checked,
                 disabled,
+                alternate,
             },
             MenuItem::SystemMenu(os_menu) => OwnedMenuItem::SystemMenu(os_menu.owned()),
         }
@@ -206,6 +216,33 @@ impl MenuItem {
             _ => {}
         }
         self
+    }
+
+    /// Make this item an alternate of the item before it: it is shown in
+    /// that item's place while `modifiers` are held (macOS
+    /// `NSMenuItem.alternate`). The two items should run related actions,
+    /// and the alternate's key equivalent, if it has one, should be the
+    /// previous item's with `modifiers` added.
+    ///
+    /// Only for [`MenuItem::Action`], otherwise, will be ignored. Platforms
+    /// without alternate items show both items.
+    pub fn alternate(mut self, modifiers: Modifiers) -> Self {
+        if let MenuItem::Action { alternate, .. } = &mut self {
+            *alternate = Some(modifiers);
+        }
+        self
+    }
+
+    /// The modifiers that reveal this item, when it is an alternate of the
+    /// item before it.
+    ///
+    /// Only for [`MenuItem::Action`], otherwise, returns `None`
+    #[inline]
+    pub fn alternate_modifiers(&self) -> Option<Modifiers> {
+        match self {
+            MenuItem::Action { alternate, .. } => *alternate,
+            _ => None,
+        }
     }
 
     /// Returns whether this menu item is disabled
@@ -274,6 +311,12 @@ pub enum OwnedMenuItem {
 
         /// Whether this action is disabled
         disabled: bool,
+
+        /// Set when this item is an alternate of the item before it: shown
+        /// in that item's place while these modifiers are held, as
+        /// `NSMenuItem.alternate` does on macOS. Platforms without
+        /// alternate items ignore it and show both items.
+        alternate: Option<Modifiers>,
     },
 }
 
@@ -288,12 +331,14 @@ impl Clone for OwnedMenuItem {
                 os_action,
                 checked,
                 disabled,
+                alternate,
             } => OwnedMenuItem::Action {
                 name: name.clone(),
                 action: action.boxed_clone(),
                 os_action: *os_action,
                 checked: *checked,
                 disabled: *disabled,
+                alternate: *alternate,
             },
             OwnedMenuItem::SystemMenu(os_menu) => OwnedMenuItem::SystemMenu(os_menu.clone()),
         }
@@ -422,5 +467,27 @@ mod tests {
         );
         assert!(!submenu.is_checked());
         assert!(submenu.is_disabled());
+    }
+
+    #[test]
+    fn test_menu_item_alternate() {
+        use super::{MenuItem, Modifiers};
+
+        let item = MenuItem::action("Primary", gpui::NoAction);
+        assert_eq!(item.alternate_modifiers(), None);
+
+        let alternate = MenuItem::action("Alternate", gpui::NoAction).alternate(Modifiers::shift());
+        assert_eq!(alternate.alternate_modifiers(), Some(Modifiers::shift()));
+
+        let owned = alternate.owned();
+        assert!(matches!(
+            owned.clone(),
+            super::OwnedMenuItem::Action {
+                alternate: Some(modifiers),
+                ..
+            } if modifiers == Modifiers::shift()
+        ));
+
+        assert_eq!(MenuItem::separator().alternate(Modifiers::shift()).alternate_modifiers(), None);
     }
 }

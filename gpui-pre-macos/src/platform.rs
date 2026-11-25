@@ -337,6 +337,7 @@ impl MacPlatform {
                     os_action,
                     checked,
                     disabled,
+                    alternate,
                 } => {
                     // Note that this is intentionally using earlier bindings, whereas typically
                     // later ones take display precedence. See the discussion on
@@ -374,6 +375,9 @@ impl MacPlatform {
                     };
 
                     let item;
+                    // Whether the item got a key equivalent from a binding,
+                    // whose modifier mask an alternate keeps.
+                    let mut has_key_equivalent = false;
                     if let Some(keystrokes) = keystrokes {
                         if keystrokes.len() == 1 {
                             let keystroke = &keystrokes[0];
@@ -412,6 +416,7 @@ impl MacPlatform {
                                 let _: () = msg_send![item, setAllowsAutomaticKeyEquivalentLocalization: NO];
                             }
                             item.setKeyEquivalentModifierMask_(mask);
+                            has_key_equivalent = true;
                         } else {
                             item = NSMenuItem::alloc(nil)
                                 .initWithTitle_action_keyEquivalent_(
@@ -429,6 +434,30 @@ impl MacPlatform {
                                 ns_string(""),
                             )
                             .autorelease();
+                    }
+
+                    // An alternate replaces the item before it while its
+                    // modifiers are held. AppKit pairs the two by key
+                    // equivalent, telling them apart by modifier mask: one
+                    // with a binding keeps the binding's mask (for example
+                    // shift-cmd-R under cmd-R), and one without gets the
+                    // revealing modifiers as its mask.
+                    if let Some(modifiers) = alternate {
+                        if !has_key_equivalent {
+                            let mut mask = NSEventModifierFlags::empty();
+                            for (modifier, flag) in &[
+                                (modifiers.platform, NSEventModifierFlags::NSCommandKeyMask),
+                                (modifiers.control, NSEventModifierFlags::NSControlKeyMask),
+                                (modifiers.alt, NSEventModifierFlags::NSAlternateKeyMask),
+                                (modifiers.shift, NSEventModifierFlags::NSShiftKeyMask),
+                            ] {
+                                if *modifier {
+                                    mask |= *flag;
+                                }
+                            }
+                            item.setKeyEquivalentModifierMask_(mask);
+                        }
+                        let _: () = msg_send![item, setAlternate: YES];
                     }
 
                     if *checked {
